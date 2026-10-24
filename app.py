@@ -9,17 +9,19 @@ A full-featured academic information retrieval interface integrating:
 """
 
 import os
+import re
 import streamlit as st
 import time
 
 from engine.indexing import IndexStore
-from engine.preprocessing import QueryProcessor, preprocess
+from engine.preprocessing import QueryProcessor, preprocess, stem_single
 from engine.bm25_search import BM25SearchEngine
 from engine.vector_search import VectorSearchEngine
 from engine.boolean_search import boolean_search
 from engine.proximity_search import exact_phrase_search, near_proximity_search, proximity_search
 from engine.region_search import extract_best_region
 from engine.non_overlapped_search import non_overlapped_search
+from engine.flexible_matching import FlexibleSearchEngine
 from engine.navigation import (
     CATEGORY_ICONS,
     get_taxonomy_tree,
@@ -231,9 +233,10 @@ def load_search_engine():
     store = IndexStore(data_path)
     bm25_engine = BM25SearchEngine(store)
     vector_engine = VectorSearchEngine(store)
-    return store, bm25_engine, vector_engine
+    flexible_engine = FlexibleSearchEngine(store)
+    return store, bm25_engine, vector_engine, flexible_engine
 
-store, bm25_engine, vector_engine = load_search_engine()
+store, bm25_engine, vector_engine, flexible_engine = load_search_engine()
 
 
 # ---------------------------------------------------------
@@ -322,11 +325,11 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-mode_col1, mode_col2 = st.columns([4, 6])
+mode_col1, mode_col2 = st.columns([6, 4])
 with mode_col1:
     selected_mode = st.radio(
         "Navigation Mode",
-        ["🧭 Browse & Collections", "🔍 Search Engine"],
+        ["🧭 Browse & Collections", "🔍 Search Engine", "🎛️ Flexible Matching"],
         horizontal=True,
         label_visibility="collapsed",
         key="main_mode_switch"
@@ -879,3 +882,218 @@ elif st.session_state.nav_mode == "🔍 Search Engine":
                                 st.write(doc.get("results", "N/A"))
     else:
         st.info("👆 Enter a query above or click any of the preset query chips to begin searching.")
+
+
+# =========================================================
+# MODE 3: FLEXIBLE & EXTENDED BOOLEAN MATCHING
+# =========================================================
+elif st.session_state.nav_mode == "🎛️ Flexible Matching":
+
+    # Sidebar: Flexible Engine Controls
+    with st.sidebar:
+        st.markdown("### 🎛️ Flexible Engine Settings")
+
+        fuzzy_model_label = st.selectbox(
+            "Fuzzy Logic Model",
+            [
+                "Salton's p-Norm (Extended Boolean)",
+                "Zadeh Fuzzy Logic (Min/Max)",
+                "Algebraic Logic (Product/Sum)"
+            ],
+            index=0,
+            help="Select how continuous logical operators are computed over [0, 1]"
+        )
+
+        model_code = "p_norm"
+        if "Zadeh" in fuzzy_model_label:
+            model_code = "zadeh"
+        elif "Algebraic" in fuzzy_model_label:
+            model_code = "algebraic"
+
+        p_norm_val = 2.0
+        if model_code == "p_norm":
+            p_norm_val = st.slider(
+                "p-Norm Parameter (p)",
+                min_value=1.0,
+                max_value=5.0,
+                value=2.0,
+                step=0.5,
+                help="p=1 is soft linear blend; p=2 is Euclidean distance; higher p approaches strict Zadeh min/max"
+            )
+
+        partial_threshold = st.slider(
+            "Typo / Partial Tolerance Ratio",
+            min_value=0.50,
+            max_value=1.00,
+            value=0.75,
+            step=0.05,
+            help="Minimum Levenshtein similarity required to match misspelled or partial words"
+        )
+
+        min_score_cutoff = st.slider(
+            "Minimum Score Threshold (0 to 1)",
+            min_value=0.01,
+            max_value=0.50,
+            value=0.05,
+            step=0.01,
+            help="Filters out documents below this continuous fuzzy relevance degree"
+        )
+
+        top_k_flex = st.slider("Max Results to Display", min_value=1, max_value=25, value=10, step=1, key="slider_flex_topk")
+
+        st.markdown("---")
+        st.markdown("### 🔒 Mandatory Hard Filters")
+        manual_include = st.text_input("Mandatory Include (+term)", placeholder="e.g. clinical (MUST be present)", key="inp_inc")
+        manual_exclude = st.text_input("Mandatory Exclude (-term)", placeholder="e.g. imaging (MUST NOT be present)", key="inp_exc")
+
+        inc_list = [t.strip().lstrip("+") for t in manual_include.split() if t.strip()]
+        exc_list = [t.strip().lstrip("-") for t in manual_exclude.split() if t.strip()]
+
+    # Query Presets / Chips
+    st.markdown("##### 💡 Try Example Flexible Queries:")
+    flex_preset_cols = st.columns(6)
+
+    flex_presets = [
+        ("🎛️ Soft Extended AND", "(artificial OR machine) AND (clinical OR health*)"),
+        ("🔍 Typo Tolerance", "artifcial"),
+        ("⚡ Wildcard Prefix", "comput* AND vision"),
+        ("🛡️ Hard Filters", "AI AND healthcare +clinical -imaging"),
+        ("📈 Continuous p-Norm", "neural AND vision"),
+        ("🌐 Multi-Domain OR", "data* OR algorithm*"),
+    ]
+
+    if "flex_query_input" not in st.session_state:
+        st.session_state.flex_query_input = "(artificial OR machine) AND (clinical OR health*)"
+
+    for i, (label, sample_q) in enumerate(flex_presets):
+        if flex_preset_cols[i].button(label, use_container_width=True, key=f"flex_chip_{i}"):
+            st.session_state.flex_query_input = sample_q
+
+    # Search Form Input
+    with st.form("flex_search_form"):
+        q_col, btn_col = st.columns([5, 1])
+        with q_col:
+            flex_query_text = st.text_input(
+                "Flexible Search Query",
+                value=st.session_state.flex_query_input,
+                placeholder="Enter query with AND, OR, NOT, (), wildcards (*), typos, +must, -exclude...",
+                label_visibility="collapsed"
+            )
+        with btn_col:
+            flex_submitted = st.form_submit_button("Flexible Search 🎛️", use_container_width=True, type="primary")
+
+    active_flex_query = flex_query_text.strip()
+
+    if active_flex_query:
+        start_time = time.perf_counter()
+
+        flex_results = flexible_engine.search(
+            query=active_flex_query,
+            fuzzy_model=model_code,
+            p_norm=p_norm_val,
+            partial_threshold=partial_threshold,
+            include_terms=inc_list,
+            exclude_terms=exc_list,
+            min_score=min_score_cutoff,
+            top_k=top_k_flex
+        )
+
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        results_list = flex_results["results"]
+
+        # Status Bar
+        model_display = f"{model_code.upper()} (p={p_norm_val})" if model_code == "p_norm" else model_code.upper()
+        st.markdown(f"""
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; margin-bottom:18px;">
+            <span style="color:#94A3B8; font-size:0.95rem;">
+                Showing <b>{len(results_list)}</b> of <b>{flex_results['total_candidates']}</b> candidates for
+                <code style="color:#38BDF8;">{active_flex_query}</code> via <b>{model_display} Logic</b>
+            </span>
+            <span style="color:#64748B; font-size:0.85rem;">
+                Latency: <b>{duration_ms:.1f} ms</b> | Threshold: <b>&ge; {min_score_cutoff:.2f}</b>
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Active Filter Indicators
+        if flex_results["includes_applied"] or flex_results["excludes_applied"]:
+            filt_str = []
+            if flex_results["includes_applied"]:
+                filt_str.append(f"<span style='color:#34D399;'>+MUST: {', '.join(flex_results['includes_applied'])}</span>")
+            if flex_results["excludes_applied"]:
+                filt_str.append(f"<span style='color:#F87171;'>-MUST_NOT: {', '.join(flex_results['excludes_applied'])}</span>")
+            st.markdown(f"<div style='margin-bottom:14px; font-size:0.85rem;'>Applied Constraints: {' &bull; '.join(filt_str)}</div>", unsafe_allow_html=True)
+
+        if not results_list:
+            st.warning("No documents met the relevance criteria. Try lowering the 'Minimum Score Threshold' or broadening query terms.")
+        else:
+            for rank, item in enumerate(results_list, 1):
+                doc = item["doc"]
+                doc_id = item["doc_id"]
+                title = doc.get("title", f"Document #{doc_id}")
+                score = item["score"]
+                pct = item["relevance_pct"]
+                category = item.get("category", "General")
+                subcategory = item.get("subcategory", "General")
+
+                # Extract best passage snippet
+                query_tokens = [w for w in re.findall(r"\w+", active_flex_query) if w.upper() not in {"AND", "OR", "NOT"}]
+                reg_info = extract_best_region(doc, [stem_single(t) for t in query_tokens])
+                snippet = reg_info["snippet"]
+                region = reg_info["field"]
+
+                with st.container():
+                    st.markdown(f"""
+                    <div class="result-card">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <span class="badge-rank">#{rank}</span>
+                                <span style="color:#94A3B8; font-size:0.85rem; margin-left:8px;">Doc ID: {doc_id}</span>
+                                <span class="badge-cat" style="margin-left:8px;">{category}</span>
+                                <span style="color:#94A3B8; font-size:0.82rem; margin-left:6px;">📂 {subcategory}</span>
+                            </div>
+                            <div>
+                                <span style="background:rgba(56, 189, 248, 0.15); color:#38BDF8; border:1px solid rgba(56, 189, 248, 0.3); padding:3px 10px; border-radius:7px; font-weight:700; font-size:0.85rem;">
+                                    Fuzzy Relevance: {score:.4f} ({pct}%)
+                                </span>
+                                <span style="background:rgba(245,158,11,0.15); color:#FBBF24; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-size:0.8rem; margin-left:6px;">
+                                    📍 Region: {region}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="result-title">📄 {title}</div>
+                        <div class="snippet-box">
+                            <span style="font-size:0.75rem; text-transform:uppercase; color:#94A3B8; letter-spacing:0.5px; display:block; margin-bottom:4px;">Best Matching Passage ({region}):</span>
+                            "{snippet}"
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    btn_c1, btn_c2 = st.columns([3, 7])
+                    with btn_c1:
+                        if st.button("🧭 View in Browse Mode", key=f"btn_flex_view_{doc_id}", use_container_width=True):
+                            st.session_state.nav_mode = "🧭 Browse & Collections"
+                            push_nav_state("document", category, subcategory, doc_id)
+                            st.rerun()
+                    with btn_c2:
+                        with st.expander("📊 Inspect Fuzzy Term Membership & Expansions"):
+                            for term_key, exp_data in flex_results["term_explanations"].items():
+                                matched_list = exp_data.get("matched_vocab", [])
+                                if matched_list:
+                                    matched_str = ", ".join([f"{m['term']} (sim: {m['similarity']})" for m in matched_list])
+                                    st.markdown(f"**Term `{term_key}`** &rarr; Matched Stems: `{matched_str}`")
+                                else:
+                                    st.markdown(f"**Term `{term_key}`** &rarr; No direct vocabulary matches")
+                            st.caption(f"Evaluated with **{model_display}** logic over normalized TF-IDF representations.")
+
+                        with st.expander(f"▶ Show Full Document (ID: {doc_id}) — {title}"):
+                            t1, t2, t3 = st.tabs(["📄 Abstract", "🔬 Methodology", "📈 Results"])
+                            with t1:
+                                st.write(doc.get("abstract", "N/A"))
+                            with t2:
+                                st.write(doc.get("methodology", "N/A"))
+                            with t3:
+                                st.write(doc.get("results", "N/A"))
+    else:
+        st.info("👆 Enter an Extended Boolean query above or click any of the example query chips to start.")
+

@@ -18,7 +18,8 @@ A modular, high-performance Information Retrieval system built in Python, showca
 | **Phrase & Proximity** | `engine/proximity_search.py` | Exact consecutive phrases (`"..."`) and `NEAR/N` distance matching |
 | **Non-Overlapped Merging**| `engine/non_overlapped_search.py` | Multi-field independent retrieval with deduplicated ranking |
 | **Browsing & Navigation** | `engine/navigation.py` | Taxonomy, breadcrumbs, related docs, recently viewed, and faceted filters |
-| **Modern Web Interface** | `app.py` | Dual-mode Streamlit UI (Search Engine + Hierarchical Browsing) |
+| **Flexible Matching**     | `engine/flexible_matching.py` | Fuzzy Boolean, p-norm, typo tolerance, wildcards (*), and +/- constraints |
+| **Modern Web Interface** | `app.py` | 3-Mode Streamlit UI (Search Engine, Browse & Collections, Flexible Matching) |
 
 ---
 
@@ -26,7 +27,7 @@ A modular, high-performance Information Retrieval system built in Python, showca
 
 ```
 IR Modules/
-├── app.py                          # Streamlit Web Application (Search & Browse modes)
+├── app.py                          # Streamlit Web Application (Search, Browse, & Flexible modes)
 ├── requirements.txt                # Python dependencies
 ├── README.md                       # Main documentation
 ├── implementation_plan.md          # Project plan & specifications
@@ -45,19 +46,22 @@ IR Modules/
 │   ├── region_search.py            # Sentence-level snippet & region extraction
 │   ├── proximity_search.py         # Positional exact phrase & NEAR/N matching
 │   ├── non_overlapped_search.py    # Independent field list retrieval & deduplicated merge
-│   └── navigation.py               # Browsing, taxonomy, faceted filtering, recommendations
+│   ├── navigation.py               # Browsing, taxonomy, faceted filtering, recommendations
+│   └── flexible_matching.py        # Extended Boolean, Fuzzy Logic, Partial/Typo matching
 │
 ├── weekly_demos/
 │   ├── week1_demo.py               # CLI: Inverted indexing + TF ranking
 │   ├── week2_demo.py               # CLI: 5-stage modular pipeline walkthrough
 │   ├── week3_demo.py               # CLI: Boolean search + Vector space model
 │   ├── week4_demo.py               # CLI: BM25, field scope, regions, proximity, deduplication
-│   └── week5_demo.py               # CLI: Browsing, taxonomy, faceted filters, recommendations
+│   ├── week5_demo.py               # CLI: Browsing, taxonomy, faceted filters, recommendations
+│   └── week6_demo.py               # CLI: Flexible matching, fuzzy logic, wildcards, include/exclude
 │
 ├── tests/
 │   ├── __init__.py
 │   ├── test_search.py              # Automated 12-test search test suite
-│   └── test_navigation.py          # Automated 11-test navigation & browsing test suite
+│   ├── test_navigation.py          # Automated 11-test navigation & browsing test suite
+│   └── test_flexible_matching.py   # Automated 13-test flexible matching test suite
 │
 ├── docs/
 │   ├── architecture_diagram.md     # Pipeline diagrams & stage documentation
@@ -125,6 +129,11 @@ python weekly_demos/week4_demo.py
 ### Week 5 — Browsing, Navigation & Recommendation Suite
 ```bash
 python weekly_demos/week5_demo.py
+```
+
+### Week 6 — Flexible Matching & Extended Boolean Suite
+```bash
+python weekly_demos/week6_demo.py
 ```
 
 ---
