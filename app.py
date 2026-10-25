@@ -893,33 +893,17 @@ elif st.session_state.nav_mode == "🎛️ Flexible Matching":
     with st.sidebar:
         st.markdown("### 🎛️ Flexible Engine Settings")
 
-        fuzzy_model_label = st.selectbox(
-            "Fuzzy Logic Model",
-            [
-                "Salton's p-Norm (Extended Boolean)",
-                "Zadeh Fuzzy Logic (Min/Max)",
-                "Algebraic Logic (Product/Sum)"
-            ],
-            index=0,
-            help="Select how continuous logical operators are computed over [0, 1]"
-        )
-
-        model_code = "p_norm"
-        if "Zadeh" in fuzzy_model_label:
-            model_code = "zadeh"
-        elif "Algebraic" in fuzzy_model_label:
-            model_code = "algebraic"
-
-        p_norm_val = 2.0
-        if model_code == "p_norm":
-            p_norm_val = st.slider(
-                "p-Norm Parameter (p)",
-                min_value=1.0,
-                max_value=5.0,
-                value=2.0,
-                step=0.5,
-                help="p=1 is soft linear blend; p=2 is Euclidean distance; higher p approaches strict Zadeh min/max"
-            )
+        st.markdown("""
+        <div style="background:rgba(56, 189, 248, 0.08); border:1px solid rgba(56, 189, 248, 0.25); border-radius:8px; padding:12px; margin-bottom:14px;">
+            <div style="font-weight:700; color:#38BDF8; font-size:0.85rem; margin-bottom:6px;">📐 Model: Zadeh's Fuzzy Logic</div>
+            <div style="font-size:0.78rem; color:#CBD5E1; line-height:1.5;">
+                Classic Fuzzy Set Theory:<br>
+                &bull; <b>AND</b>: min(&mu;<sub>A</sub>, &mu;<sub>B</sub>)<br>
+                &bull; <b>OR</b>: max(&mu;<sub>A</sub>, &mu;<sub>B</sub>)<br>
+                &bull; <b>NOT</b>: 1 - &mu;<sub>A</sub>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         partial_threshold = st.slider(
             "Typo / Partial Tolerance Ratio",
@@ -958,7 +942,7 @@ elif st.session_state.nav_mode == "🎛️ Flexible Matching":
         ("🔍 Typo Tolerance", "artifcial"),
         ("⚡ Wildcard Prefix", "comput* AND vision"),
         ("🛡️ Hard Filters", "AI AND healthcare +clinical -imaging"),
-        ("📈 Continuous p-Norm", "neural AND vision"),
+        ("📈 Fuzzy AND (Min)", "neural AND vision"),
         ("🌐 Multi-Domain OR", "data* OR algorithm*"),
     ]
 
@@ -989,8 +973,6 @@ elif st.session_state.nav_mode == "🎛️ Flexible Matching":
 
         flex_results = flexible_engine.search(
             query=active_flex_query,
-            fuzzy_model=model_code,
-            p_norm=p_norm_val,
             partial_threshold=partial_threshold,
             include_terms=inc_list,
             exclude_terms=exc_list,
@@ -1002,12 +984,11 @@ elif st.session_state.nav_mode == "🎛️ Flexible Matching":
         results_list = flex_results["results"]
 
         # Status Bar
-        model_display = f"{model_code.upper()} (p={p_norm_val})" if model_code == "p_norm" else model_code.upper()
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; margin-bottom:18px;">
             <span style="color:#94A3B8; font-size:0.95rem;">
                 Showing <b>{len(results_list)}</b> of <b>{flex_results['total_candidates']}</b> candidates for
-                <code style="color:#38BDF8;">{active_flex_query}</code> via <b>{model_display} Logic</b>
+                <code style="color:#38BDF8;">{active_flex_query}</code> via <b>Zadeh's Fuzzy Logic</b>
             </span>
             <span style="color:#64748B; font-size:0.85rem;">
                 Latency: <b>{duration_ms:.1f} ms</b> | Threshold: <b>&ge; {min_score_cutoff:.2f}</b>
@@ -1084,7 +1065,7 @@ elif st.session_state.nav_mode == "🎛️ Flexible Matching":
                                     st.markdown(f"**Term `{term_key}`** &rarr; Matched Stems: `{matched_str}`")
                                 else:
                                     st.markdown(f"**Term `{term_key}`** &rarr; No direct vocabulary matches")
-                            st.caption(f"Evaluated with **{model_display}** logic over normalized TF-IDF representations.")
+                            st.caption("Evaluated with **Zadeh's Fuzzy Logic** (min / max / complement) over normalized TF-IDF representations.")
 
                         with st.expander(f"▶ Show Full Document (ID: {doc_id}) — {title}"):
                             t1, t2, t3 = st.tabs(["📄 Abstract", "🔬 Methodology", "📈 Results"])

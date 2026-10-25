@@ -2,7 +2,7 @@
 Flexible Matching Module:
 - Term relevance scoring normalized between 0 and 1
 - Partial, wildcard (*), and typo-tolerant matching
-- Fuzzy AND/OR/NOT logic (Zadeh, Algebraic, and p-norm Extended Boolean models)
+- Standard Zadeh's Fuzzy Logic (Classic Fuzzy Set Theory: min, max, complement)
 - Extended Boolean AST query parser
 - Mandatory Include (+) and Exclude (-) constraints
 - Continuous relevance ranking and score breakdown
@@ -182,40 +182,25 @@ class FuzzyScoreCalculator:
 
 class ExtendedBooleanEvaluator:
     """
-    Evaluates Boolean operations continuously over [0.0, 1.0] using:
-    - 'zadeh': Min for AND, Max for OR, (1 - x) for NOT
-    - 'algebraic': Product for AND, (x + y - x*y) for OR, (1 - x) for NOT
-    - 'p_norm': Salton's p-norm extended boolean model
+    Evaluates Boolean operations using classic Zadeh's Fuzzy Logic (Fuzzy Set Theory):
+    - Fuzzy AND: min(v1, v2)
+    - Fuzzy OR:  max(v1, v2)
+    - Fuzzy NOT: 1.0 - v
     """
 
     @staticmethod
-    def fuzzy_and(v1: np.ndarray, v2: np.ndarray, model: str = "zadeh", p: float = 2.0) -> np.ndarray:
-        if model == "algebraic":
-            return v1 * v2
-        elif model == "p_norm":
-            # p-norm AND: 1 - (( (1-v1)^p + (1-v2)^p ) / 2)^(1/p)
-            p_val = max(1.0, float(p))
-            term = ((1.0 - v1)**p_val + (1.0 - v2)**p_val) / 2.0
-            return np.clip(1.0 - (term ** (1.0 / p_val)), 0.0, 1.0)
-        else:
-            # Default Zadeh
-            return np.minimum(v1, v2)
+    def fuzzy_and(v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
+        """Zadeh Fuzzy AND: intersection is minimum of membership values."""
+        return np.minimum(v1, v2)
 
     @staticmethod
-    def fuzzy_or(v1: np.ndarray, v2: np.ndarray, model: str = "zadeh", p: float = 2.0) -> np.ndarray:
-        if model == "algebraic":
-            return v1 + v2 - (v1 * v2)
-        elif model == "p_norm":
-            # p-norm OR: (( v1^p + v2^p ) / 2)^(1/p)
-            p_val = max(1.0, float(p))
-            term = (v1**p_val + v2**p_val) / 2.0
-            return np.clip(term ** (1.0 / p_val), 0.0, 1.0)
-        else:
-            # Default Zadeh
-            return np.maximum(v1, v2)
+    def fuzzy_or(v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
+        """Zadeh Fuzzy OR: union is maximum of membership values."""
+        return np.maximum(v1, v2)
 
     @staticmethod
     def fuzzy_not(v: np.ndarray) -> np.ndarray:
+        """Zadeh Fuzzy NOT: complement is 1.0 - membership value."""
         return np.clip(1.0 - v, 0.0, 1.0)
 
 
@@ -233,14 +218,10 @@ class ExtendedBooleanParser:
         self,
         tokens: List[str],
         calculator: FuzzyScoreCalculator,
-        fuzzy_model: str = "zadeh",
-        p_norm: float = 2.0,
         similarity_threshold: float = 0.75
     ):
         self.tokens = self._insert_implicit_operators(tokens)
         self.calc = calculator
-        self.fuzzy_model = fuzzy_model
-        self.p_norm = p_norm
         self.similarity_threshold = similarity_threshold
         self.pos = 0
         self.term_explanations: Dict[str, Any] = {}
@@ -285,7 +266,7 @@ class ExtendedBooleanParser:
         while self.current_token() == "OR":
             self.consume("OR")
             right = self.and_expr()
-            res = ExtendedBooleanEvaluator.fuzzy_or(res, right, model=self.fuzzy_model, p=self.p_norm)
+            res = ExtendedBooleanEvaluator.fuzzy_or(res, right)
         return res
 
     def and_expr(self) -> np.ndarray:
@@ -293,7 +274,7 @@ class ExtendedBooleanParser:
         while self.current_token() == "AND":
             self.consume("AND")
             right = self.not_expr()
-            res = ExtendedBooleanEvaluator.fuzzy_and(res, right, model=self.fuzzy_model, p=self.p_norm)
+            res = ExtendedBooleanEvaluator.fuzzy_and(res, right)
         return res
 
     def not_expr(self) -> np.ndarray:
@@ -328,7 +309,7 @@ class ExtendedBooleanParser:
 class FlexibleSearchEngine:
     """
     High-level Flexible Matching Engine combining:
-    - Fuzzy & Extended Boolean Retrieval
+    - Zadeh's Classic Fuzzy Logic (Min for AND, Max for OR, Complement for NOT)
     - Partial Matching & Typo Tolerance
     - Mandatory Include (+) & Exclude (-) Constraints
     - Score normalization into [0.0, 1.0] and ranking
@@ -341,16 +322,15 @@ class FlexibleSearchEngine:
     def search(
         self,
         query: str,
-        fuzzy_model: str = "zadeh",
-        p_norm: float = 2.0,
         partial_threshold: float = 0.75,
         include_terms: Optional[List[str]] = None,
         exclude_terms: Optional[List[str]] = None,
         min_score: float = 0.01,
-        top_k: int = 10
+        top_k: int = 10,
+        **kwargs
     ) -> Dict[str, Any]:
         """
-        Execute flexible search with continuous fuzzy relevance scoring in [0.0, 1.0].
+        Execute flexible search with continuous Zadeh fuzzy relevance scoring in [0.0, 1.0].
         """
         raw_query = query.strip()
         if not raw_query:
@@ -376,12 +356,10 @@ class FlexibleSearchEngine:
             else:
                 tokens.append(word.lower())
 
-        # 3. Parse and evaluate Extended Boolean AST
+        # 3. Parse and evaluate Extended Boolean AST using Zadeh's Fuzzy Logic
         parser = ExtendedBooleanParser(
             tokens=tokens,
             calculator=self.calculator,
-            fuzzy_model=fuzzy_model,
-            p_norm=p_norm,
             similarity_threshold=partial_threshold
         )
         base_scores = parser.parse()
@@ -426,7 +404,7 @@ class FlexibleSearchEngine:
             "results": results,
             "term_explanations": parser.term_explanations,
             "total_candidates": len(candidate_indices),
-            "fuzzy_model": fuzzy_model,
+            "fuzzy_model": "Zadeh's Classic Fuzzy Logic",
             "includes_applied": all_includes,
             "excludes_applied": all_excludes
         }

@@ -4,7 +4,7 @@ Tests:
 - Normalized term relevance in [0, 1]
 - Prefix wildcard matching (*)
 - Typo tolerance via Levenshtein ratio
-- Fuzzy AND, OR, NOT operations (Zadeh, Algebraic, p-norm)
+- Zadeh's Classic Fuzzy AND, OR, NOT operations (min, max, complement)
 - Extended Boolean AST parsing
 - Mandatory Include (+) and Exclude (-) constraints
 - Descending relevance ranking
@@ -80,14 +80,14 @@ class TestFlexibleMatching(unittest.TestCase):
         """Test Zadeh Fuzzy AND: min(mu_A, mu_B)."""
         v1 = np.array([0.8, 0.2, 0.0, 0.9])
         v2 = np.array([0.5, 0.7, 0.4, 0.1])
-        res = ExtendedBooleanEvaluator.fuzzy_and(v1, v2, model="zadeh")
+        res = ExtendedBooleanEvaluator.fuzzy_and(v1, v2)
         np.testing.assert_array_almost_equal(res, [0.5, 0.2, 0.0, 0.1])
 
     def test_fuzzy_or_zadeh(self):
         """Test Zadeh Fuzzy OR: max(mu_A, mu_B)."""
         v1 = np.array([0.8, 0.2, 0.0, 0.9])
         v2 = np.array([0.5, 0.7, 0.4, 0.1])
-        res = ExtendedBooleanEvaluator.fuzzy_or(v1, v2, model="zadeh")
+        res = ExtendedBooleanEvaluator.fuzzy_or(v1, v2)
         np.testing.assert_array_almost_equal(res, [0.8, 0.7, 0.4, 0.9])
 
     def test_fuzzy_not(self):
@@ -96,26 +96,20 @@ class TestFlexibleMatching(unittest.TestCase):
         res = ExtendedBooleanEvaluator.fuzzy_not(v)
         np.testing.assert_array_almost_equal(res, [0.2, 1.0, 0.0, 0.65])
 
-    def test_algebraic_and_or(self):
-        """Test Algebraic product and sum models."""
-        v1 = np.array([0.5, 0.8])
-        v2 = np.array([0.4, 0.5])
-        # Product: 0.5*0.4 = 0.2, 0.8*0.5 = 0.4
-        and_res = ExtendedBooleanEvaluator.fuzzy_and(v1, v2, model="algebraic")
-        np.testing.assert_array_almost_equal(and_res, [0.2, 0.4])
-
-        # Sum: x + y - x*y -> 0.5 + 0.4 - 0.2 = 0.7; 0.8 + 0.5 - 0.4 = 0.9
-        or_res = ExtendedBooleanEvaluator.fuzzy_or(v1, v2, model="algebraic")
-        np.testing.assert_array_almost_equal(or_res, [0.7, 0.9])
-
-    def test_p_norm_extended_boolean(self):
-        """Test Salton's p-norm model."""
-        v1 = np.array([0.6, 0.2])
-        v2 = np.array([0.8, 0.4])
-        # For p=2, OR_2 = sqrt( (v1^2 + v2^2)/2 )
-        or_p = ExtendedBooleanEvaluator.fuzzy_or(v1, v2, model="p_norm", p=2.0)
-        expected_or = np.sqrt((v1**2 + v2**2) / 2.0)
-        np.testing.assert_array_almost_equal(or_p, expected_or)
+    def test_compound_zadeh_expression(self):
+        """Test compound Zadeh fuzzy expression: (A OR B) AND NOT C."""
+        va = np.array([0.8, 0.2, 0.5])
+        vb = np.array([0.4, 0.9, 0.1])
+        vc = np.array([0.1, 0.6, 0.0])
+        # (va OR vb) = max(va, vb) = [0.8, 0.9, 0.5]
+        # NOT vc = 1 - vc = [0.9, 0.4, 1.0]
+        # AND = min(max(va, vb), 1 - vc) = min([0.8, 0.9, 0.5], [0.9, 0.4, 1.0]) = [0.8, 0.4, 0.5]
+        expected = np.minimum(np.maximum(va, vb), 1.0 - vc)
+        eval_or = ExtendedBooleanEvaluator.fuzzy_or(va, vb)
+        eval_not = ExtendedBooleanEvaluator.fuzzy_not(vc)
+        eval_res = ExtendedBooleanEvaluator.fuzzy_and(eval_or, eval_not)
+        np.testing.assert_array_almost_equal(eval_res, expected)
+        np.testing.assert_array_almost_equal(eval_res, [0.8, 0.4, 0.5])
 
     def test_mandatory_include_filter(self):
         """Test mandatory inclusion (+term): documents missing term must be filtered out."""

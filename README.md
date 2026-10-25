@@ -18,7 +18,7 @@ A modular, high-performance Information Retrieval system built in Python, showca
 | **Phrase & Proximity** | `engine/proximity_search.py` | Exact consecutive phrases (`"..."`) and `NEAR/N` distance matching |
 | **Non-Overlapped Merging**| `engine/non_overlapped_search.py` | Multi-field independent retrieval with deduplicated ranking |
 | **Browsing & Navigation** | `engine/navigation.py` | Taxonomy, breadcrumbs, related docs, recently viewed, and faceted filters |
-| **Flexible Matching**     | `engine/flexible_matching.py` | Fuzzy Boolean, p-norm, typo tolerance, wildcards (*), and +/- constraints |
+| **Flexible Matching**     | `engine/flexible_matching.py` | Zadeh's Fuzzy Logic, typo tolerance, wildcards (*), and +/- constraints |
 | **Modern Web Interface** | `app.py` | 3-Mode Streamlit UI (Search Engine, Browse & Collections, Flexible Matching) |
 
 ---
@@ -47,7 +47,7 @@ IR Modules/
 │   ├── proximity_search.py         # Positional exact phrase & NEAR/N matching
 │   ├── non_overlapped_search.py    # Independent field list retrieval & deduplicated merge
 │   ├── navigation.py               # Browsing, taxonomy, faceted filtering, recommendations
-│   └── flexible_matching.py        # Extended Boolean, Fuzzy Logic, Partial/Typo matching
+│   └── flexible_matching.py        # Extended Boolean, Zadeh Fuzzy Logic, Partial/Typo matching
 │
 ├── weekly_demos/
 │   ├── week1_demo.py               # CLI: Inverted indexing + TF ranking
@@ -55,13 +55,13 @@ IR Modules/
 │   ├── week3_demo.py               # CLI: Boolean search + Vector space model
 │   ├── week4_demo.py               # CLI: BM25, field scope, regions, proximity, deduplication
 │   ├── week5_demo.py               # CLI: Browsing, taxonomy, faceted filters, recommendations
-│   └── week6_demo.py               # CLI: Flexible matching, fuzzy logic, wildcards, include/exclude
+│   └── week6_demo.py               # CLI: Flexible matching, Zadeh fuzzy logic, wildcards, include/exclude
 │
 ├── tests/
 │   ├── __init__.py
 │   ├── test_search.py              # Automated 12-test search test suite
 │   ├── test_navigation.py          # Automated 11-test navigation & browsing test suite
-│   └── test_flexible_matching.py   # Automated 13-test flexible matching test suite
+│   └── test_flexible_matching.py   # Automated 12-test flexible matching test suite
 │
 ├── docs/
 │   ├── architecture_diagram.md     # Pipeline diagrams & stage documentation
@@ -175,3 +175,18 @@ Parameters: $k_1 = 1.5, b = 0.75$. Field weights default to $2.0 \times \text{Ti
 
 ### 5. Region Retrieval
 Segments documents into sentences, measures token overlap, and highlights the single most informative sentence alongside the source field name (`Title`, `Abstract`, `Methodology`, or `Results`).
+
+### 6. Flexible Matching & Extended Boolean Suite (Zadeh's Fuzzy Logic)
+Provides continuous relevance degrees in $[0.0, 1.0]$ with typo and wildcard tolerance:
+- **Normalized Term Weighting**:
+  $$w(t, D) = \frac{\text{TF}(t, D)}{\text{TF}(t, D) + 1.2 \cdot \left(0.25 + 0.75 \cdot \frac{|D|}{\text{avgdl}}\right)} \times \frac{\text{IDF}(t)}{\max \text{IDF}}$$
+- **Typo & Prefix Partial Matching**:
+  $$\text{sim}(q, v) = \begin{cases} 1.0 & \text{if exact match or prefix wildcard } q^* \\ 1.0 - \frac{\text{Levenshtein}(q, v)}{\max(|q|, |v|)} & \text{if ratio } \ge \tau \end{cases}$$
+- **Zadeh's Classic Fuzzy Set Logic**:
+  - Fuzzy $\text{AND}$: $\mu_{A \land B}(D) = \min(\mu_A(D), \mu_B(D))$
+  - Fuzzy $\text{OR}$: $\mu_{A \lor B}(D) = \max(\mu_A(D), \mu_B(D))$
+  - Fuzzy $\text{NOT}$: $\mu_{\neg A}(D) = 1.0 - \mu_A(D)$
+- **Mandatory Hard Filters**:
+  - `+term` (MUST be present): Document score zeroed if $w(\text{term}, D) = 0$.
+  - `-term` (MUST NOT be present): Document eliminated if $w(\text{term}, D) > 0$.
+
